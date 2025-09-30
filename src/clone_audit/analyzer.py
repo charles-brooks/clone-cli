@@ -9,16 +9,17 @@ from time import perf_counter
 import requests
 
 from .config import ComparisonConfig, CrawlConfig, ExtractionConfig
-from .crawler import Crawler
-from .extractor import Extractor
-from .models import (
+from .adapters import HostingProvider, WhoisProvider
+from .core import (
     ComparisonResult,
+    Comparer,
     CrawlResult,
+    Crawler,
+    Extractor,
     HostingRecord,
     SiteArtifacts,
     WhoisRecord,
 )
-from .comparer import Comparer
 from .whois_client import WhoisClient
 from .hosting_client import HostingClient
 
@@ -64,13 +65,16 @@ class SiteAnalyzer:
         crawl_config: CrawlConfig,
         extraction_config: ExtractionConfig,
         comparison_config: ComparisonConfig,
+        *,
+        whois_provider: WhoisProvider | None = None,
+        hosting_provider: HostingProvider | None = None,
     ) -> None:
         self.crawl_config = crawl_config
         self.extraction_config = extraction_config
         self.comparison_config = comparison_config
         self._comparison = Comparer(comparison_config)
-        self._whois = WhoisClient()
-        self._hosting = HostingClient()
+        self._whois: WhoisProvider = whois_provider or WhoisClient()
+        self._hosting: HostingProvider = hosting_provider or HostingClient()
 
     def run(self, base_url: str, clone_url: str) -> AnalysisResult:
         logger.info("Starting crawl: base=%s clone=%s", base_url, clone_url)

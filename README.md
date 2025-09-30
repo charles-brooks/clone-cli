@@ -12,16 +12,19 @@ Security responders often need a fast confidence check when a clone is reported.
 - Perform WHOIS lookups for each domain and surface registrar/creation metadata.
 - Produce a human-readable report (Markdown) and optional JSON dump for automation.
 
-## Planned Architecture
-- `crawler.py`: BFS crawler constrained to same-host URLs, producing `PageSnapshot` objects with HTML payloads and metadata.
-- `extractor.py`: Pulls text blocks (visible content), downloads images to hash (aHash), and derives structural tag n-grams.
-- `comparer.py`: Matches text/image/structure artefacts between sites using simple heuristics (cosine similarity for text shingles, Hamming distance for hashes, Jaccard for structure).
-- `scorer.py`: Aggregates per-signal similarities into an overall score with configurable weights.
-- `whois_client.py`: Retrieves registrar details via `python-whois` (fall back to socket whois).
-- `report.py`: Renders Markdown + optional JSON showing top matches, divergence notes, and WHOIS summary.
-- `cli.py` (entry point): Argument parsing, dependency checks, orchestration, error handling.
+## Architecture Overview
+Core crawl/extract/compare logic now lives under `clone_audit/core` so both the CLI and future long-lived services share deterministic building blocks. See `docs/core-architecture.md` for a deeper dive.
 
-All components will be kept modular so future contributors can swap out heuristics with richer models or add persistence.
+- `clone_audit/core/crawler.py`: breadth-first crawler returning `PageSnapshot` objects with HTML payloads and metadata.
+- `clone_audit/core/extractor.py`: converts snapshots into text, image, and structural artefacts.
+- `clone_audit/core/comparer.py`: scores artefacts via lightweight heuristics with `ScoreAggregator` in `core/scoring`.
+- `clone_audit/core/models.py`: dataclasses passed between modules (snapshots, artefacts, matches, breakdowns).
+- `clone_audit/adapters/__init__.py`: minimal protocols for WHOIS and hosting lookups so callers can inject alternatives.
+- `whois_client.py` / `hosting_client.py`: default adapter implementations used by the CLI.
+- `report.py`: renders Markdown, JSON, and PDF outputs.
+- `cli.py`: argument parsing and orchestration built on the shared library.
+
+Legacy module paths (`clone_audit.crawler`, `clone_audit.models`, etc.) re-export the core modules so existing imports and tests continue to work while new code can depend on the shared package.
 
 ## Usage (planned)
 ```bash
@@ -29,15 +32,14 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 export PATH="$PATH:/home/workstation/CAR/clone-cli/src"; PYTHONPATH=src python -m clone_audit.cli \
-  --base https://legit.example --clone https://www.example.com \
-  --max-pages 50 \
-  --max-depth 2 \
-  --output report.md \
+  --base https://cryptoassetrecovery.com --clone https://www.example.com \
   --pdf-output report.pdf \
-  --homepage-threshold 0.7
+  --homepage-tool chrome \
+  --homepage-delay 4 \
+  --homepage-timeout 60 \
 ```
 
-CLI flags (to be implemented; defaults may change):
+CLI flags (defaults may change):
 - `--base`, `--clone` (required): root URLs.
 - `--max-pages`, `--max-depth`: crawl limits.
 - `--delay`: seconds between requests per host.
@@ -66,12 +68,9 @@ CLI flags (to be implemented; defaults may change):
 
 Dependency management will start with a simple `requirements.txt`. Packaging (Poetry, pipx) can be revisited later.
 
-## Testing Approach (next iteration)
-- Unit tests for URL normalization, extraction helpers, and similarity scoring.
-- Tiny local fixtures (sample HTML + images) for deterministic comparisons.
-- CLI smoke test to ensure end-to-end run produces a report.
+## Testing
+Unit tests cover URL utilities, crawl/extract behaviour, comparison heuristics, reporting, and analyzer orchestration. Add fixtures or regression captures alongside tests to keep runs deterministic.
 
-### Running Tests Today
 ```bash
 PYTHONPATH=src python -m pytest
 ```
